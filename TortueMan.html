@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>🐢 Tortue Marine — Stop à la pollution !</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; background: #021a33;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    min-height: 100vh; font-family: Arial, sans-serif; overscroll-behavior: none;
+    touch-action: none;
+  }
+  #wrap { display:flex; flex-direction:column; align-items:center; gap:8px; }
+  canvas { background:#021a33; border-radius:8px; box-shadow:0 0 30px rgba(0,0,0,0.5); touch-action:none; max-width:96vw; max-height:70vh; }
+  #pad { display:grid; grid-template-columns:60px 60px 60px; grid-template-rows:60px 60px 60px; gap:6px; margin-top:6px; }
+  #pad button {
+    font-size:24px; border-radius:12px; border:none; background:#1c5fa0; color:white;
+    box-shadow:0 3px 0 #0c3a66; user-select:none; -webkit-user-select:none;
+  }
+  #pad button:active { transform:translateY(2px); box-shadow:0 1px 0 #0c3a66; }
+  #up{grid-column:2;grid-row:1;} #left{grid-column:1;grid-row:2;}
+  #down{grid-column:2;grid-row:3;} #right{grid-column:3;grid-row:2;}
+  #hint { color:#cfe; font-size:13px; opacity:0.7; text-align:center; max-width:90vw; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <canvas id="game" width="800" height="600"></canvas>
+  <div id="pad">
+    <button id="up">↑</button>
+    <button id="left">←</button>
+    <button id="down">↓</button>
+    <button id="right">→</button>
+  </div>
+  <div id="hint">Flèches du clavier ou boutons tactiles — ENTRÉE / tap pour démarrer</div>
+</div>
+
+<script>
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const W = 800, H = 600, CELL = 40;
+const COLS = W / CELL, ROWS = H / CELL;
+const FPS = 60;
+const MOVE_DELAY = 175;
+const TUNNEL_ROW = 7;
+
+const COLORS = {
+  WHITE:[255,255,255], GREEN:[50,200,80], DARK_GREEN:[20,120,40],
+  YELLOW:[255,230,50], ORANGE:[255,140,0], RED:[220,50,50], GREY:[180,180,200],
+  BLACK:[0,0,0], PINK:[255,150,180], CORAL:[255,100,80],
+  PLASTIC_COL:[210,230,255], PLASTIC_SCARED:[100,180,100], PLASTIC_OUTLINE:[150,170,200]
+};
+function rgba(c, a=1){ return `rgba(${c[0]},${c[1]},${c[2]},${a})`; }
+
+const MAZE_LEVEL_1 = [
+ [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+ [1,2,2,2,2,2,1,2,2,2,2,2,2,1,2,2,2,2,2,1],
+ [1,3,1,1,2,1,1,2,1,1,1,1,2,1,1,2,1,1,3,1],
+ [1,2,1,0,2,2,2,2,2,0,0,2,2,2,2,2,0,1,2,1],
+ [1,2,1,1,2,1,0,1,1,1,1,1,1,0,1,2,1,1,2,1],
+ [1,2,2,2,2,1,2,2,2,0,0,2,2,2,1,2,2,2,2,1],
+ [1,1,1,2,1,1,2,1,0,0,0,0,1,2,1,1,2,1,1,1],
+ [2,2,2,2,2,2,2,1,0,0,0,0,1,2,2,2,2,2,2,2],
+ [1,1,1,2,1,1,0,1,1,1,1,1,1,0,1,1,2,1,1,1],
+ [1,2,2,2,2,1,2,2,2,0,0,2,2,2,1,2,2,2,2,1],
+ [1,2,1,1,2,1,0,1,1,1,1,1,1,0,1,2,1,1,2,1],
+ [1,3,1,0,2,2,2,2,2,0,0,2,2,2,2,2,0,1,3,1],
+ [1,2,2,2,2,2,1,2,2,2,2,2,2,1,2,2,2,2,2,1],
+ [1,1,1,1,2,1,1,1,2,1,1,1,1,1,1,1,2,1,1,1],
+ [1,2,2,3,2,2,1,2,2,2,2,2,2,1,2,2,2,2,2,1],
+];
+const MAZE_LEVEL_2 = [
+ [1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],
+ [1,2,2,1,2,2,2,2,1,2,1,2,2,2,2,1,2,2,2,1],
+ [1,2,1,1,2,1,1,2,1,2,1,2,1,1,2,1,1,2,3,1],
+ [1,2,2,2,2,1,2,2,2,2,2,2,2,1,2,2,2,2,2,1],
+ [1,1,2,1,1,1,2,1,1,0,0,1,1,2,1,1,1,2,1,1],
+ [1,3,2,2,2,1,2,1,0,0,0,0,1,2,1,2,2,2,3,1],
+ [1,1,1,2,1,1,2,1,0,0,0,0,1,2,1,1,2,1,1,1],
+ [2,2,2,2,2,2,2,1,0,0,0,0,1,2,2,2,2,2,2,2],
+ [1,1,1,2,1,1,2,1,1,1,1,1,1,2,1,1,2,1,1,1],
+ [1,2,2,2,1,2,2,2,2,2,2,2,2,2,1,2,2,2,2,1],
+ [1,2,1,2,1,1,2,1,1,2,1,1,2,1,1,2,1,2,1,1],
+ [1,2,1,2,2,2,2,1,2,2,2,1,2,2,2,2,1,2,1,1],
+ [1,3,1,1,1,2,1,1,2,1,2,1,1,2,1,1,1,2,3,1],
+ [1,1,1,1,2,2,2,1,2,1,2,1,2,2,2,1,1,1,1,1],
+ [1,2,2,2,2,1,2,3,2,2,2,2,2,1,2,2,2,2,2,1],
+];
+
+const LEVELS = [
+  { name:'Récif de pierre', maze:MAZE_LEVEL_1,
+    wall_main:[12,68,124], wall_edge:[24,95,165], wall_dot:[55,138,221],
+    bg_top:[4,44,83], bg_bottom:[24,95,165] },
+  { name:'Récif de corail', maze:MAZE_LEVEL_2,
+    wall_main:[200,70,60], wall_edge:[255,120,90], wall_dot:[255,190,160],
+    bg_top:[50,10,35], bg_bottom:[120,35,55] },
+];
+
+function gridToPx(gx, gy){ return [gx*CELL+CELL/2, gy*CELL+CELL/2]; }
+
+// ── Bulles ──────────────────────────────────────────────────────────────
+class Bubble {
+  constructor(){ this.reset(Math.random()*W, Math.random()*H); }
+  reset(x,y){
+    this.x = x ?? Math.random()*W;
+    this.y = y ?? H+5;
+    this.r = 2+Math.random()*6;
+    this.spd = 0.4+Math.random()*0.8;
+    this.alpha = (40+Math.random()*70)/255;
+  }
+  update(){ this.y -= this.spd; if(this.y < -10) this.reset(); }
+  draw(c){
+    c.beginPath();
+    c.fillStyle = rgba([200,230,255], this.alpha);
+    c.arc(this.x, this.y, this.r, 0, Math.PI*2);
+    c.fill();
+  }
+}
+const bubbles = Array.from({length:30}, () => new Bubble());
+
+// ── Tortue ──────────────────────────────────────────────────────────────
+function drawTurtle(c, cx, cy, dir, frame){
+  const t = frame*0.08;
+  const flipperWave = Math.sin(t)*12;
+  const C_SHELL_DARK=[80,60,20], C_SHELL_MED=[120,90,30], C_SHELL_LIGHT=[160,130,50];
+  const C_SKIN=[100,130,80], C_SKIN_LIGHT=[140,170,100], C_PLASTRON=[200,185,130];
+  const C_EYE=[20,20,20], C_SCALE=[70,100,55];
+
+  const angleMap = {'1,0':0, '-1,0':180, '0,-1':90, '0,1':270};
+  const angle = angleMap[dir.join(',')] ?? 0;
+
+  c.save();
+  c.translate(cx, cy);
+  c.rotate(-angle*Math.PI/180);
+
+  // Queue
+  c.beginPath();
+  c.fillStyle = rgba(C_SKIN);
+  c.moveTo(-7,0); c.lineTo(-18,-3); c.lineTo(-20,0); c.lineTo(-18,3);
+  c.closePath(); c.fill();
+
+  // Plastron
+  c.beginPath(); c.fillStyle = rgba(C_PLASTRON);
+  c.ellipse(0,0,12,9,0,0,Math.PI*2); c.fill();
+
+  // Carapace
+  c.beginPath(); c.fillStyle = rgba(C_SHELL_MED);
+  c.ellipse(0,0,13,10,0,0,Math.PI*2); c.fill();
+
+  // Écusson central
+  c.beginPath(); c.fillStyle = rgba(C_SHELL_DARK);
+  c.moveTo(0,-10); c.lineTo(4,-7); c.lineTo(3,8); c.lineTo(0,10);
+  c.lineTo(-3,8); c.lineTo(-4,-7); c.closePath(); c.fill();
+  c.strokeStyle = rgba(C_SHELL_LIGHT); c.lineWidth=1; c.stroke();
+
+  // Écussons latéraux
+  [[-7,7,6],[0,8,6],[6,6,5]].forEach(([dyOff,w,h])=>{
+    [-1,1].forEach(side=>{
+      const rx = side*7, ry = dyOff;
+      c.beginPath(); c.fillStyle = rgba(C_SHELL_DARK);
+      c.moveTo(rx, ry-h/2);
+      c.lineTo(rx+side*w, ry-h/3);
+      c.lineTo(rx+side*w, ry+h/3);
+      c.lineTo(rx, ry+h/2);
+      c.closePath(); c.fill();
+      c.strokeStyle = rgba(C_SHELL_LIGHT); c.stroke();
+    });
+  });
+  c.beginPath(); c.strokeStyle = rgba(C_SHELL_DARK); c.lineWidth=2;
+  c.ellipse(0,0,13,10,0,0,Math.PI*2); c.stroke();
+
+  // Nageoires avant
+  [-1,1].forEach(side=>{
+    const fa = flipperWave*side*Math.PI/180;
+    const baseX = side*10, baseY = -4;
+    const tipX = side*(22+Math.cos(fa)*4), tipY = -8+Math.sin(fa)*8;
+    c.beginPath(); c.fillStyle = rgba(C_SKIN);
+    c.moveTo(baseX, baseY);
+    c.lineTo(baseX+side*2, baseY+5);
+    c.lineTo(tipX, tipY+6);
+    c.lineTo(tipX+side*4, tipY+2);
+    c.lineTo(tipX, tipY-2);
+    c.lineTo(baseX+side*2, baseY-4);
+    c.closePath(); c.fill();
+    c.strokeStyle = rgba(C_SKIN_LIGHT); c.stroke();
+    c.beginPath(); c.fillStyle = rgba(C_SCALE);
+    c.ellipse(baseX+side*4-1, baseY, 3,2,0,0,Math.PI*2); c.fill();
+  });
+
+  // Nageoires arrière
+  [-1,1].forEach(side=>{
+    const fb = -flipperWave*side*0.5*Math.PI/180;
+    const bx = -8+side*9, by = 4;
+    c.beginPath(); c.fillStyle = rgba(C_SKIN);
+    c.moveTo(bx,by);
+    c.lineTo(bx+side*2, by+4);
+    c.lineTo(bx+side*(12+Math.cos(fb)*2), by+5+Math.sin(fb)*4);
+    c.lineTo(bx+side*12, by);
+    c.lineTo(bx+side*8, by-3);
+    c.closePath(); c.fill();
+    c.strokeStyle = rgba(C_SKIN_LIGHT); c.stroke();
+  });
+
+  // Tête
+  const hx = 15, hy = 0;
+  c.beginPath(); c.fillStyle = rgba(C_SKIN); c.ellipse(hx,hy,4,4,0,0,Math.PI*2); c.fill();
+  c.beginPath(); c.fillStyle = rgba(C_SKIN); c.ellipse(hx+9,hy,8,7,0,0,Math.PI*2); c.fill();
+  c.beginPath(); c.fillStyle = rgba(C_SKIN_LIGHT); c.ellipse(hx+10,hy,7,6,0,0,Math.PI*2); c.fill();
+  c.beginPath(); c.fillStyle = rgba(C_SHELL_MED); c.ellipse(hx+8,hy-1,5,3.5,0,0,Math.PI*2); c.fill();
+  c.beginPath(); c.fillStyle = rgba(C_SHELL_DARK); c.arc(hx+16,hy-2,1.5,0,Math.PI*2); c.fill();
+  c.beginPath(); c.fillStyle = rgba(C_SHELL_DARK); c.arc(hx+16,hy+2,1.5,0,Math.PI*2); c.fill();
+  c.beginPath(); c.fillStyle = rgba(C_EYE); c.arc(hx+7,hy-3,2.5,0,Math.PI*2); c.fill();
+  c.beginPath(); c.fillStyle = rgba(COLORS.WHITE); c.arc(hx+8,hy-4,1,0,Math.PI*2); c.fill();
+
+  c.restore();
+}
+
+// ── Sac plastique ───────────────────────────────────────────────────────
+function drawPlasticBag(c, cx, cy, frame, scared=false, dissolve=1.0){
+  const col = scared ? COLORS.PLASTIC_SCARED : COLORS.PLASTIC_COL;
+  const outline = scared ? [80,160,80] : COLORS.PLASTIC_OUTLINE;
+  const alpha = dissolve;
+
+  c.save();
+  c.translate(cx-19, cy-22);
+  c.beginPath(); c.fillStyle = rgba(col, alpha);
+  c.moveTo(4,14); c.lineTo(34,14); c.lineTo(30,38); c.lineTo(8,38);
+  c.closePath(); c.fill();
+  c.strokeStyle = rgba(outline, alpha); c.lineWidth=2; c.stroke();
+
+  c.beginPath(); c.arc(11,12,5,Math.PI,Math.PI*2); c.stroke();
+  c.beginPath(); c.arc(27,12,5,Math.PI,Math.PI*2); c.stroke();
+
+  [12,19,26].forEach(px=>{
+    c.beginPath(); c.strokeStyle = rgba(outline, Math.max(0,alpha-0.3)); c.lineWidth=1;
+    c.moveTo(px,16); c.lineTo(px-1,36); c.stroke();
+  });
+  c.beginPath(); c.strokeStyle = rgba([255,255,255], alpha*0.5); c.lineWidth=2;
+  c.moveTo(10,18); c.lineTo(8,34); c.stroke();
+
+  if(scared){
+    const br = 3+Math.sin(frame*0.14)*2;
+    c.beginPath(); c.fillStyle = rgba([100,220,100], Math.max(0,alpha-0.4));
+    c.arc(34,10,br,0,Math.PI*2); c.fill();
+  }
+  c.restore();
+}
+
+// ── Méduse ──────────────────────────────────────────────────────────────
+function drawJellyfish(c, cx, cy, frame, dissolve=1.0){
+  const t = frame*0.1;
+  const alpha = dissolve*0.9;
+  const C_BELL=[220,130,200], C_BELL_LIGHT=[255,190,235], C_TENT=[200,110,180];
+
+  c.save();
+  c.translate(cx, cy);
+
+  for(let i=0;i<5;i++){
+    const baseX = -12+i*6;
+    c.beginPath(); c.strokeStyle = rgba(C_TENT, Math.max(0,alpha-0.15)); c.lineWidth=2;
+    c.moveTo(baseX, 6-16);
+    for(let s=1;s<6;s++){
+      const wave = Math.sin(t+i+s*0.8)*3;
+      c.lineTo(baseX+wave, 6+s*5-16);
+    }
+    c.stroke();
+  }
+
+  c.beginPath(); c.fillStyle = rgba(C_BELL, alpha);
+  c.ellipse(0,-16,14,11,0,0,Math.PI*2); c.fill();
+  c.beginPath(); c.fillStyle = rgba(C_BELL_LIGHT, Math.max(0,alpha-0.12));
+  c.ellipse(-3,-21,7,5,0,0,Math.PI*2); c.fill();
+
+  for(let i=0;i<6;i++){
+    const bx = -12+i*5;
+    const bob = Math.sin(t*1.5+i)*2;
+    c.beginPath(); c.fillStyle = rgba(C_BELL, alpha);
+    c.arc(bx, -8+bob, 3, 0, Math.PI*2); c.fill();
+  }
+  c.restore();
+}
+
+// ── Poisson ─────────────────────────────────────────────────────────────
+function drawFish(c, cx, cy, frame){
+  const bob = Math.sin(frame*0.1+cx)*2;
+  const cy2 = cy+bob;
+  c.beginPath(); c.fillStyle = rgba(COLORS.YELLOW);
+  c.ellipse(cx,cy2,7,5,0,0,Math.PI*2); c.fill();
+  c.beginPath(); c.fillStyle = rgba(COLORS.ORANGE);
+  c.moveTo(cx-7,cy2); c.lineTo(cx-14,cy2-5); c.lineTo(cx-14,cy2+5);
+  c.closePath(); c.fill();
+  c.beginPath(); c.fillStyle = rgba(COLORS.BLACK);
+  c.arc(cx+3,cy2-1,2,0,Math.PI*2); c.fill();
+}
+
+// ── Étoile de mer ───────────────────────────────────────────────────────
+function drawStarfish(c, cx, cy, frame){
+  const ao = frame*0.03;
+  const rO=11, rI=4;
+  c.beginPath(); c.fillStyle = rgba(COLORS.CORAL);
+  for(let i=0;i<10;i++){
+    const angle = Math.PI/2 + i*Math.PI/5 + ao;
+    const r = i%2===0 ? rO : rI;
+    const x = cx+r*Math.cos(angle), y = cy+r*Math.sin(angle);
+    if(i===0) c.moveTo(x,y); else c.lineTo(x,y);
+  }
+  c.closePath(); c.fill();
+  c.beginPath(); c.fillStyle = rgba(COLORS.PINK);
+  c.arc(cx,cy,3,0,Math.PI*2); c.fill();
+}
+
+// ── Jeu ─────────────────────────────────────────────────────────────────
+class Game {
+  constructor(levelIdx=0){
+    this.levelIdx = levelIdx;
+    this.score = 0; this.lives = 3;
+    this.reset(false);
+  }
+
+  reset(keepScore=true){
+    const prevScore = keepScore ? this.score : 0;
+    const prevLives = keepScore ? this.lives : 3;
+
+    const level = LEVELS[this.levelIdx];
+    const maze = level.maze;
+    this.grid = [];
+    for(let r=0;r<ROWS;r++){
+      const row = [];
+      for(let c=0;c<COLS;c++) row.push(maze[r % maze.length][c % maze[0].length]);
+      this.grid.push(row);
+    }
+
+    this.px=1; this.py=1; this.dx=1; this.dy=0; this.nextDx=1; this.nextDy=0;
+    [this.rx, this.ry] = gridToPx(this.px, this.py);
+    this.score = prevScore; this.lives = prevLives;
+    this.frame=0; this.moveAcc=0;
+    this.ecoActive=false; this.ecoTimer=0;
+    this.state='playing';
+    this.flashTimer=0; this.invincibleTimer=0;
+    this.particles=[]; this.msg=''; this.msgTimer=0;
+
+    const BAG_SPEED = 230;
+    this.CAGE_SPAWN = [9,7];
+    this.BAG_SPEED = BAG_SPEED;
+    this.bags = [
+      {gx:9,gy:7,dx:1,dy:0, ...this._bagPos(9,7), acc:0, dissolve:1, isJelly:false, cagedTimer:0},
+      {gx:10,gy:6,dx:0,dy:1, ...this._bagPos(10,6), acc:Math.random()*60, dissolve:1, isJelly:false, cagedTimer:0},
+      {gx:11,gy:8,dx:-1,dy:0, ...this._bagPos(11,8), acc:Math.random()*60, dissolve:1, isJelly:false, cagedTimer:0},
+    ];
+
+    this.totalFish = 0;
+    for(const row of this.grid) for(const cell of row) if(cell===2) this.totalFish++;
+  }
+
+  _bagPos(gx,gy){ const [x,y] = gridToPx(gx,gy); return {rx:x, ry:y}; }
+
+  passable(gx,gy){
+    if(gy<0 || gy>=ROWS) return false;
+    if(gx<0 || gx>=COLS) return gy===TUNNEL_ROW;
+    return this.grid[gy][gx] !== 1;
+  }
+
+  showMsg(t){ this.msg=t; this.msgTimer=90; }
+  nextLevel(){ this.levelIdx++; this.reset(true); }
+
+  addParticles(cx,cy,color,n=10){
+    for(let i=0;i<n;i++){
+      const a = Math.random()*Math.PI*2, spd = 1+Math.random()*3;
+      this.particles.push({x:cx,y:cy,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,life:35,color});
+    }
+  }
+
+  moveTurtle(){
+    let nx=this.px+this.nextDx, ny=this.py+this.nextDy;
+    if(this.passable(nx,ny)){ this.dx=this.nextDx; this.dy=this.nextDy; }
+    nx=this.px+this.dx; ny=this.py+this.dy;
+    if(this.passable(nx,ny)){
+      const wrapped = nx<0 || nx>=COLS;
+      this.px = (ny===TUNNEL_ROW) ? ((nx%COLS)+COLS)%COLS : nx;
+      this.py = ny;
+      if(wrapped && this.py===TUNNEL_ROW){
+        [this.rx] = gridToPx(this.px, this.py);
+      }
+    }
+  }
+
+  collect(){
+    const cell = this.grid[this.py][this.px];
+    const [cx,cy] = gridToPx(this.px, this.py);
+    if(cell===2){
+      this.grid[this.py][this.px]=0;
+      this.score+=10; this.totalFish--;
+      this.addParticles(cx,cy,COLORS.YELLOW,8);
+      if(this.totalFish<=0){
+        this.state = (this.levelIdx < LEVELS.length-1) ? 'level_complete' : 'win';
+      }
+    } else if(cell===3){
+      this.grid[this.py][this.px]=0;
+      this.score+=50; this.ecoActive=true; this.ecoTimer=300;
+      for(const b of this.bags) b.isJelly=true;
+      this.addParticles(cx,cy,COLORS.CORAL,16);
+      this.showMsg("🌿 Les sacs deviennent des méduses !");
+    }
+  }
+
+  chooseBagDir(bag){
+    const dirs = [[1,0],[-1,0],[0,1],[0,-1]];
+    for(let i=dirs.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [dirs[i],dirs[j]]=[dirs[j],dirs[i]]; }
+    const {gx,gy} = bag;
+    let best=null, bestD;
+    if(this.ecoActive){
+      bestD=-1;
+      for(const [dx,dy] of dirs){
+        const nx=gx+dx, ny=gy+dy;
+        if(this.passable(nx,ny)){
+          const d=(nx-this.px)**2+(ny-this.py)**2;
+          if(d>bestD){ bestD=d; best=[dx,dy]; }
+        }
+      }
+    } else {
+      bestD=9999;
+      for(const [dx,dy] of dirs){
+        const nx=gx+dx, ny=gy+dy;
+        if(this.passable(nx,ny)){
+          const noise = Math.random()*1.8;
+          const d = Math.abs(nx-this.px)+Math.abs(ny-this.py)+noise;
+          if(d<bestD){ bestD=d; best=[dx,dy]; }
+        }
+      }
+    }
+    return best || [bag.dx, bag.dy];
+  }
+
+  updateBag(bag, dt){
+    if(bag.cagedTimer>0){ bag.cagedTimer -= dt; return; }
+    bag.acc += dt;
+    const speed = this.BAG_SPEED * (this.ecoActive ? 1.4 : 1.0);
+    const [tx,ty] = gridToPx(bag.gx, bag.gy);
+    const f = Math.min(1, dt / Math.max(1, speed - bag.acc + dt));
+    bag.rx += (tx-bag.rx)*f;
+    bag.ry += (ty-bag.ry)*f;
+
+    if(bag.acc >= speed){
+      bag.acc -= speed;
+      let nx=bag.gx+bag.dx, ny=bag.gy+bag.dy;
+      if(!this.passable(nx,ny)){
+        const [dx,dy] = this.chooseBagDir(bag);
+        bag.dx=dx; bag.dy=dy;
+        nx=bag.gx+dx; ny=bag.gy+dy;
+      }
+      if(nx<0 || nx>=COLS){
+        nx = ((nx%COLS)+COLS)%COLS;
+        [bag.rx] = gridToPx(nx, ny);
+      }
+      bag.gx = nx; bag.gy = ((ny%ROWS)+ROWS)%ROWS;
+      const [dx,dy] = this.chooseBagDir(bag);
+      bag.dx=dx; bag.dy=dy;
+    }
+  }
+
+  checkCollision(){
+    if(this.invincibleTimer>0) return;
+    const [cx,cy] = gridToPx(this.px,this.py);
+    for(const bag of this.bags){
+      if(bag.gx===this.px && bag.gy===this.py){
+        if(this.ecoActive){
+          this.score+=300;
+          this.addParticles(cx,cy,COLORS.GREEN,20);
+          [bag.gx,bag.gy] = this.CAGE_SPAWN;
+          [bag.rx,bag.ry] = gridToPx(...this.CAGE_SPAWN);
+          bag.isJelly=false; bag.cagedTimer=240;
+          this.showMsg("+300 Méduse recyclée !");
+        } else {
+          this.lives--; this.flashTimer=70; this.invincibleTimer=90;
+          this.addParticles(cx,cy,[200,200,255],18);
+          this.showMsg("La tortue est piégée !");
+          if(this.lives<=0) this.state='gameover';
+          else {
+            this.px=1; this.py=1;
+            [this.rx,this.ry] = gridToPx(1,1);
+            this.dx=1; this.dy=0;
+          }
+        }
+      }
+    }
+  }
+
+  update(dt){
+    if(this.state!=='playing') return;
+    this.frame++;
+    for(const b of bubbles) b.update();
+    for(const p of this.particles){ p.x+=p.vx; p.y+=p.vy; p.life--; }
+    this.particles = this.particles.filter(p=>p.life>0);
+
+    if(this.flashTimer>0) this.flashTimer--;
+    if(this.invincibleTimer>0) this.invincibleTimer--;
+    if(this.msgTimer>0) this.msgTimer--;
+
+    if(this.ecoActive){
+      this.ecoTimer--;
+      const ratio = this.ecoTimer/300;
+      for(const b of this.bags) b.dissolve = Math.max(0.3, ratio);
+      if(this.ecoTimer<=0){
+        this.ecoActive=false;
+        for(const b of this.bags){ b.dissolve=1; b.isJelly=false; }
+      }
+    }
+
+    this.moveAcc += dt;
+    if(this.moveAcc >= MOVE_DELAY){
+      this.moveAcc -= MOVE_DELAY;
+      this.moveTurtle();
+      this.collect();
+      this.checkCollision();
+    }
+
+    const [tx,ty] = gridToPx(this.px,this.py);
+    this.rx += (tx-this.rx)*0.35;
+    this.ry += (ty-this.ry)*0.35;
+
+    for(const b of this.bags) this.updateBag(b, dt);
+  }
+
+  draw(c){
+    const level = LEVELS[this.levelIdx];
+    for(let y=0;y<H;y+=4){
+      const t=y/H;
+      const r=Math.round(level.bg_top[0]+(level.bg_bottom[0]-level.bg_top[0])*t);
+      const g=Math.round(level.bg_top[1]+(level.bg_bottom[1]-level.bg_top[1])*t);
+      const b=Math.round(level.bg_top[2]+(level.bg_bottom[2]-level.bg_top[2])*t);
+      c.fillStyle = `rgb(${r},${g},${b})`;
+      c.fillRect(0,y,W,4);
+    }
+    for(const bub of bubbles) bub.draw(c);
+
+    for(let gy=0; gy<ROWS; gy++){
+      for(let gx=0; gx<COLS; gx++){
+        const cx=gx*CELL+CELL/2, cy=gy*CELL+CELL/2;
+        const cell = this.grid[gy][gx];
+        if(cell===1){
+          c.fillStyle = rgba(level.wall_main);
+          c.beginPath(); c.roundRect(gx*CELL+1, gy*CELL+1, CELL-2, CELL-2, 6); c.fill();
+          c.strokeStyle = rgba(level.wall_edge); c.lineWidth=1; c.stroke();
+          c.fillStyle = rgba(level.wall_dot);
+          c.beginPath(); c.arc(cx,cy,4,0,Math.PI*2); c.fill();
+          c.beginPath(); c.arc(cx-8,cy-8,3,0,Math.PI*2); c.fill();
+          c.beginPath(); c.arc(cx+8,cy+8,3,0,Math.PI*2); c.fill();
+        } else if(cell===2) drawFish(c,cx,cy,this.frame);
+        else if(cell===3) drawStarfish(c,cx,cy,this.frame);
+      }
+    }
+
+    for(const p of this.particles){
+      const a = p.life/35;
+      c.fillStyle = rgba(p.color, a);
+      c.beginPath(); c.arc(p.x,p.y,3,0,Math.PI*2); c.fill();
+    }
+
+    for(const bag of this.bags){
+      if(bag.isJelly) drawJellyfish(c, bag.rx, bag.ry, this.frame, bag.dissolve);
+      else drawPlasticBag(c, bag.rx, bag.ry, this.frame, this.ecoActive, bag.dissolve);
+    }
+
+    let turtleVisible = this.flashTimer===0 || this.flashTimer%10<7;
+    if(this.invincibleTimer>0) turtleVisible = Math.floor(this.invincibleTimer/6)%2===0;
+    if(turtleVisible) drawTurtle(c, this.rx, this.ry, [this.dx,this.dy], this.frame);
+
+    this.drawHud(c);
+
+    if(this.msgTimer>0){
+      c.font = '17px Arial';
+      const text = this.msg;
+      const tw = c.measureText(text).width;
+      c.fillStyle = 'rgba(0,0,40,0.8)';
+      c.beginPath(); c.roundRect(W/2-tw/2-4, H/2-78, tw+8, 24, 6); c.fill();
+      c.fillStyle = '#fff';
+      c.fillText(text, W/2-tw/2, H/2-61);
+    }
+
+    if(this.flashTimer>0 && this.flashTimer%10<5){
+      c.fillStyle = 'rgba(220,50,50,0.22)';
+      c.fillRect(0,0,W,H);
+    }
+
+    if(this.state==='win'){
+      this.overlay(c, "🏆 VICTOIRE !", `Score final : ${this.score}`,
+        "Toutes les tortues sont sauvées !", rgba(COLORS.GREEN));
+    } else if(this.state==='gameover'){
+      this.overlay(c, "💀 GAME OVER", `Score : ${this.score}`,
+        "La pollution a eu raison de la tortue…", rgba(COLORS.RED));
+    } else if(this.state==='level_complete'){
+      const nextName = LEVELS[this.levelIdx+1].name;
+      this.overlay(c, "✅ NIVEAU TERMINÉ !", `Score : ${this.score}`,
+        `Niveau suivant : ${nextName}`, rgba(COLORS.YELLOW), "ENTRÉE / tap = continuer");
+    }
+  }
+
+  drawHud(c){
+    c.fillStyle = '#fff'; c.font = 'bold 26px Arial';
+    c.fillText(`Score : ${this.score}`, 10, 32);
+    c.fillStyle = rgba(COLORS.GREY); c.font = '17px Arial';
+    c.fillText(`Niveau ${this.levelIdx+1} — ${LEVELS[this.levelIdx].name}`, 10, 54);
+
+    for(let i=0;i<this.lives;i++){
+      const lx = W-40-i*35;
+      c.fillStyle = rgba(COLORS.GREEN); c.beginPath(); c.arc(lx,22,10,0,Math.PI*2); c.fill();
+      c.fillStyle = rgba(COLORS.DARK_GREEN); c.beginPath(); c.arc(lx,22,7,0,Math.PI*2); c.fill();
+    }
+
+    if(this.ecoActive){
+      const pct = this.ecoTimer/300;
+      c.fillStyle = 'rgba(80,200,80,1)';
+      c.fillRect(W/2-80,8,160*pct,12);
+      c.strokeStyle='#fff'; c.strokeRect(W/2-80,8,160,12);
+      c.fillStyle = 'rgb(80,220,80)'; c.font='17px Arial'; c.textAlign='center';
+      c.fillText("🌿 Éco-bouclier actif — sacs en dissolution !", W/2, 38);
+      c.textAlign='left';
+    }
+
+    c.fillStyle = rgba(COLORS.YELLOW); c.font='17px Arial';
+    c.fillText(`Poissons restants : ${this.totalFish}`, 10, H-12);
+    c.textAlign='center';
+    c.fillStyle = rgba(COLORS.PLASTIC_COL);
+    c.fillText("Évite les sacs plastiques — ils piègent les tortues !", W/2, H-12);
+    c.textAlign='left';
+  }
+
+  overlay(c, title, sub, details, color, btnText="ENTRÉE / tap = rejouer"){
+    c.fillStyle='rgba(0,0,40,0.85)'; c.fillRect(0,0,W,H);
+    c.textAlign='center';
+    c.fillStyle=color; c.font='bold 44px Arial';
+    c.fillText(title, W/2, H/2-65);
+    c.fillStyle='#fff'; c.font='bold 26px Arial';
+    c.fillText(sub, W/2, H/2-5);
+    c.fillStyle=rgba(COLORS.GREY); c.font='17px Arial';
+    c.fillText(details, W/2, H/2+35);
+    c.fillText(btnText, W/2, H/2+75);
+    c.textAlign='left';
+  }
+}
+
+// ── Écran titre ─────────────────────────────────────────────────────────
+function drawStart(c, frame){
+  c.fillStyle = '#022c53'; c.fillRect(0,0,W,H);
+  for(const b of bubbles){ b.draw(c); b.update(); }
+
+  c.textAlign='center';
+  c.fillStyle='rgb(100,220,255)'; c.font='bold 44px Arial';
+  c.fillText("🐢  TORTUE MARINE", W/2, 100);
+  c.fillStyle='#fff'; c.font='bold 26px Arial';
+  c.fillText("Stop à la pollution plastique !", W/2, 148);
+
+  drawTurtle(c, W/2, 230, [1,0], frame);
+  drawPlasticBag(c, W/2-80, 230, frame);
+  c.fillStyle = rgba(COLORS.PLASTIC_COL); c.font='bold 22px Arial';
+  c.fillText("←  évite ça !", W/2-150, 245);
+  drawStarfish(c, W/2+80, 230, frame);
+  c.fillStyle = rgba(COLORS.CORAL);
+  c.fillText("prends ça ! →", W/2+150, 245);
+
+  const lines = [
+    ["Flèches / boutons tactiles", '#fff', 310],
+    ["🐟 Poisson = +10 pts", rgba(COLORS.YELLOW), 345],
+    ["⭐ Étoile de mer = Éco-bouclier (+50 pts)", rgba(COLORS.CORAL), 375],
+    ["🛍 Sac plastique = perd une vie !", rgba(COLORS.PLASTIC_COL), 405],
+    ["🌿 Sac dissous pendant l'éco-bouclier = +300 pts", 'rgb(100,220,100)', 435],
+  ];
+  c.font='17px Arial';
+  for(const [text,col,y] of lines){ c.fillStyle=col; c.fillText(text, W/2, y); }
+
+  c.fillStyle = rgba(COLORS.YELLOW); c.font='bold 26px Arial';
+  c.fillText("Appuyez sur ENTRÉE ou tapez l'écran pour plonger !", W/2, 500);
+  c.textAlign='left';
+}
+
+// ── Boucle principale ──────────────────────────────────────────────────
+let game = new Game();
+let state = 'start';
+let frame = 0;
+let lastTime = performance.now();
+
+function setDir(dx,dy){
+  if(state==='start'){ state='game'; return; }
+  if(game.state==='playing'){ game.nextDx=dx; game.nextDy=dy; }
+}
+
+function handleAction(){
+  if(state==='start'){ state='game'; return; }
+  if(game.state==='win' || game.state==='gameover'){ game = new Game(); }
+  else if(game.state==='level_complete'){ game.nextLevel(); }
+}
+
+window.addEventListener('keydown', (e)=>{
+  if(state==='start'){
+    if(e.key==='Enter') state='game';
+    return;
+  }
+  if(['ArrowRight','d','D'].includes(e.key)) setDir(1,0);
+  else if(['ArrowLeft','q','Q','a','A'].includes(e.key)) setDir(-1,0);
+  else if(['ArrowUp','z','Z','w','W'].includes(e.key)) setDir(0,-1);
+  else if(['ArrowDown','s','S'].includes(e.key)) setDir(0,1);
+  else if(e.key==='Enter') handleAction();
+});
+
+canvas.addEventListener('touchstart', handleAction);
+canvas.addEventListener('click', handleAction);
+
+document.getElementById('up').addEventListener('touchstart', e=>{e.preventDefault(); setDir(0,-1);});
+document.getElementById('down').addEventListener('touchstart', e=>{e.preventDefault(); setDir(0,1);});
+document.getElementById('left').addEventListener('touchstart', e=>{e.preventDefault(); setDir(-1,0);});
+document.getElementById('right').addEventListener('touchstart', e=>{e.preventDefault(); setDir(1,0);});
+document.getElementById('up').addEventListener('click', ()=>setDir(0,-1));
+document.getElementById('down').addEventListener('click', ()=>setDir(0,1));
+document.getElementById('left').addEventListener('click', ()=>setDir(-1,0));
+document.getElementById('right').addEventListener('click', ()=>setDir(1,0));
+
+function loop(now){
+  let dt = now - lastTime;
+  lastTime = now;
+  dt = Math.min(dt, 50);
+  frame++;
+
+  if(state==='start'){
+    drawStart(ctx, frame);
+  } else {
+    game.update(dt);
+    game.draw(ctx);
+  }
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
