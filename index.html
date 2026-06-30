@@ -63,9 +63,9 @@ const MAZE_LEVEL_1 = [
  [1,2,2,2,2,1,2,2,2,0,0,2,2,2,1,2,2,2,2,1],
  [1,1,1,2,1,1,2,1,0,0,0,0,1,2,1,1,2,1,1,1],
  [2,2,2,2,2,2,2,1,0,0,0,0,1,2,2,2,2,2,2,2],
- [1,1,1,2,1,1,0,1,1,1,1,1,1,0,1,1,2,1,1,1],
+ [1,1,1,2,1,1,2,1,1,1,1,1,1,2,1,1,2,1,1,1],
  [1,2,2,2,2,1,2,2,2,0,0,2,2,2,1,2,2,2,2,1],
- [1,2,1,1,2,1,0,1,1,1,1,1,1,0,1,2,1,1,2,1],
+ [1,2,1,1,2,1,2,1,1,1,1,1,1,2,1,2,1,1,2,1],
  [1,3,1,0,2,2,2,2,2,0,0,2,2,2,2,2,0,1,3,1],
  [1,2,2,2,2,2,1,2,2,2,2,2,2,1,2,2,2,2,2,1],
  [1,1,1,1,2,1,1,1,2,1,1,1,1,1,1,1,2,1,1,1],
@@ -362,6 +362,13 @@ class Game {
     return this.grid[gy][gx] !== 1;
   }
 
+  passableTurtle(gx,gy){
+    if(!this.passable(gx,gy)) return false;
+    const [cageGx, cageGy] = this.CAGE_SPAWN;
+    if(gy>=cageGy-1 && gy<=cageGy && gx>=cageGx-1 && gx<=cageGx+2) return false;
+    return true;
+  }
+
   showMsg(t){ this.msg=t; this.msgTimer=90; }
   nextLevel(){ this.levelIdx++; this.reset(true); }
 
@@ -374,9 +381,9 @@ class Game {
 
   moveTurtle(){
     let nx=this.px+this.nextDx, ny=this.py+this.nextDy;
-    if(this.passable(nx,ny)){ this.dx=this.nextDx; this.dy=this.nextDy; }
+    if(this.passableTurtle(nx,ny)){ this.dx=this.nextDx; this.dy=this.nextDy; }
     nx=this.px+this.dx; ny=this.py+this.dy;
-    if(this.passable(nx,ny)){
+    if(this.passableTurtle(nx,ny)){
       const wrapped = nx<0 || nx>=COLS;
       this.px = (ny===TUNNEL_ROW) ? ((nx%COLS)+COLS)%COLS : nx;
       this.py = ny;
@@ -470,7 +477,7 @@ class Game {
           this.addParticles(cx,cy,COLORS.GREEN,20);
           [bag.gx,bag.gy] = this.CAGE_SPAWN;
           [bag.rx,bag.ry] = gridToPx(...this.CAGE_SPAWN);
-          bag.isJelly=false; bag.cagedTimer=240;
+          bag.isJelly=false; bag.cagedTimer=420;
           this.showMsg("+300 Méduse recyclée !");
         } else {
           this.lives--; this.flashTimer=70; this.invincibleTimer=90;
@@ -549,6 +556,20 @@ class Game {
           c.beginPath(); c.arc(cx+8,cy+8,3,0,Math.PI*2); c.fill();
         } else if(cell===2) drawFish(c,cx,cy,this.frame);
         else if(cell===3) drawStarfish(c,cx,cy,this.frame);
+      }
+    }
+
+    // Trappe de la cage (barrière visuelle au-dessus du spawn des sacs/méduses)
+    {
+      const [gateGx, gateGy] = this.CAGE_SPAWN;
+      const gateX = gateGx*CELL;
+      const gateY = (gateGy-1)*CELL + CELL - 4;
+      c.fillStyle = rgba(level.wall_edge);
+      c.beginPath(); c.roundRect(gateX, gateY, CELL*2, 5, 2); c.fill();
+      c.fillStyle = rgba(level.wall_main);
+      for(let i=0;i<5;i++){
+        const bx = gateX + 4 + i*((CELL*2-8)/4);
+        c.fillRect(bx, gateY-2, 3, 9);
       }
     }
 
